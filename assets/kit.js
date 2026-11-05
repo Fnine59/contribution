@@ -1036,6 +1036,21 @@
     { id: 'c5', label: '形态池', icon: 'layers', desc: '大家都进化到哪了' },
     { id: 'rules', label: '规则', icon: 'book-open', desc: '魔力怎么算、数据口径' },
   ];
+  // Skip link: first Tab stop on every page, jumps keyboard focus past the header into <main>.
+  // Off-screen until focused, so pointer users see no change.
+  function skipLink() {
+    const main = $('main');
+    if (!main || $('.skip-link')) return;
+    if (!main.id) main.id = 'main';
+    if (!main.hasAttribute('tabindex')) main.tabIndex = -1;
+    const a = document.createElement('a');
+    a.className = 'skip-link';
+    a.href = `#${main.id}`;
+    a.textContent = '跳到正文';
+    // Focus directly instead of following the hash: pages read location.hash for their own state
+    a.addEventListener('click', (e) => { e.preventDefault(); main.focus({ preventScroll: false }); });
+    document.body.prepend(a);
+  }
   function appHeader(el, { active = null, sub = '贡献度看板' } = {}) {
     if (!el) return null;
     const href = (id) => `${pageFile(id)}${keepSearch()}`;
@@ -1053,6 +1068,7 @@
         ${themeToggleHTML()}
       </div></div>`;
     meEntry.mount($('[data-me-wrap]', el));
+    skipLink();
     let tb = $('.tabbar');
     if (!tb) { tb = document.createElement('nav'); tb.className = 'tabbar'; tb.setAttribute('aria-label', '页面导航'); document.body.appendChild(tb); }
     tb.innerHTML = SCREENS.map((s) => `<a href="${href(s.id)}" data-screen="${s.id}"${s.id === active ? ' aria-current="page"' : ''}>${icon(s.icon, 21)}<span>${s.label}</span></a>`).join('');
@@ -1511,6 +1527,17 @@
     host.tabIndex = 0;
     host.setAttribute('role', 'img');
     let hov = -1, G = null;
+    // role=img hides the bars from assistive tech, so keyboard moves are read out by a sibling live region,
+    // created up front because some screen readers ignore a live region inserted at the moment it changes
+    let live = document.createElement('span');
+    live.className = 'sr-only';
+    live.setAttribute('aria-live', 'polite');
+    host.after(live);
+    function announce(k) {
+      if (!live) return;
+      const d = k >= 0 ? o.data[k] : null;
+      live.textContent = d ? `${d.label}：${o.f(d.v)}${o.unit}${o.avg ? `，近 4 周均值 ${o.f(o.avg[k])}` : ''}` : '';
+    }
     const tw = (s) => [...String(s)].reduce((n, c) => n + (/[　-鿿＀-￯]/.test(c) ? 11 : 6.2), 0);
     function render() {
       const W = host.clientWidth || 480;
@@ -1614,12 +1641,13 @@
       if (e.key === 'End') k = n - 1;
       if (e.key === 'Enter' && o.onSelect) { o.onSelect(k); return; }
       hover(k);
+      announce(k);
     });
-    host.addEventListener('blur', () => hover(-1));
+    host.addEventListener('blur', () => { hover(-1); announce(-1); });
     const ro = new ResizeObserver(() => render());
     ro.observe(host);
     render();
-    return { el: host, update(next) { o = { ...o, ...next }; render(); }, destroy() { ro.disconnect(); host.innerHTML = ''; } };
+    return { el: host, update(next) { o = { ...o, ...next }; render(); }, destroy() { ro.disconnect(); host.innerHTML = ''; live?.remove(); live = null; } };
   }
 
   // ───────────────────────── 池塘形态站（某一周末的形态分布） ─────────────────────────
