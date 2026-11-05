@@ -159,7 +159,7 @@ function computeBoard(data, rules, now) {
   const get = (login) => {
     let p = people.get(login);
     if (!p) {
-      p = { login, member: members.has(login), prs: [], threads: new Map(), issuesFiled: 0 };
+      p = { login, member: members.has(login), prs: [], threads: new Map(), activityTimes: [], issuesFiled: 0 };
       people.set(login, p);
     }
     return p;
@@ -169,6 +169,8 @@ function computeBoard(data, rules, now) {
     const login = human(actor);
     if (!login || login === owner || t == null) return;
     const p = get(login);
+    // 每次有效协作都更新活动时间；线程去重只影响计分。
+    p.activityTimes.push(t);
     const prev = p.threads.get(key);
     if (prev === undefined || t < prev) p.threads.set(key, t);
   };
@@ -228,6 +230,7 @@ function computeBoard(data, rules, now) {
       if (owner && !rules.invalidIssueReasons.includes(issue.stateReason)) {
         const p = get(owner);
         p.threads.set(key, toTime(issue.createdAt));
+        p.activityTimes.push(toTime(issue.createdAt));
         p.issuesFiled++;
       }
       for (const c of issue.comments.nodes) touch(c.author, toTime(c.createdAt), key, owner);
@@ -247,7 +250,7 @@ function computeBoard(data, rules, now) {
       ...mergedPrs.map((x) => ({ t: x.merged, pr: x.raw, model: x.raw * (x.model.weight - 1), collab: 0 })),
       ...threadTimes.map((t) => ({ t, pr: 0, model: 0, collab: rules.score.collab })),
     ].sort((a, b) => a.t - b.t);
-    const allTimes = [...p.prs.map((x) => x.created), ...acts.map((a) => a.t)];
+    const allTimes = [...p.prs.map((x) => x.created), ...acts.map((a) => a.t), ...p.activityTimes];
     const firstAt = Math.min(...allTimes);
     const lastAt = Math.max(...allTimes);
     for (const t of allTimes) {
@@ -306,7 +309,7 @@ function computeBoard(data, rules, now) {
     let passAt = null;
     const windowWeeks = new Set();
     let windowMerged = 0;
-    const events = [...mergedTimes.map((t) => [t, true]), ...threadTimes.map((t) => [t, false])].sort((x, y) => x[0] - y[0]);
+    const events = [...mergedTimes.map((t) => [t, true]), ...p.activityTimes.map((t) => [t, false])].sort((x, y) => x[0] - y[0]);
     for (const [t, isMerge] of events) {
       if (t > evalAt) break;
       windowWeeks.add(weekStart(t, tz));
@@ -375,7 +378,7 @@ function computeBoard(data, rules, now) {
       bonusModel: score.model,
       bonusCollab: score.collab,
       weekly: score.weekly,
-      activeWeeks: score.weekly.size,
+      activeWeeks: new Set([...mergedTimes, ...p.activityTimes].map((t) => weekStart(t, tz))).size,
       lines: mergedPrs.reduce((n, x) => n + x.lines, 0),
       commits: mergedPrs.reduce((n, x) => n + x.commits, 0),
       modelMix,
