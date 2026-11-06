@@ -254,6 +254,10 @@ test('newbie: a first contribution exactly at since takes the normal assessment'
   const open = newbieOf(merges([at(0)]), at(4));
   assert.equal(open.retake, false);
   assert.equal(open.status, 'pending');
+  // 考核期满没过也不补考：since 当刻来的人不算「上线前来的」
+  const failed = newbieOf(merges([at(0)]), at(40));
+  assert.equal(failed.retake, false);
+  assert.equal(failed.status, 'failed');
 });
 
 test('newbie: retake activity weeks count only from since', () => {
