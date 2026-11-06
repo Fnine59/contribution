@@ -246,6 +246,47 @@ test('newbie: an assessment window still open at launch keeps its earlier merges
   assert.equal(retaken.passDay, 30);
 });
 
+test('newbie: a first contribution exactly at since takes the normal assessment', () => {
+  const nb = newbieOf(merges([at(0), at(1), at(8)]), at(9));
+  assert.equal(nb.retake, false);
+  assert.equal(nb.start, SINCE);
+  assert.equal(nb.status, 'passed');
+  const open = newbieOf(merges([at(0)]), at(4));
+  assert.equal(open.retake, false);
+  assert.equal(open.status, 'pending');
+});
+
+test('newbie: retake activity weeks count only from since', () => {
+  // 上线前一周（at(-3)）有动作，补考期只算上线后的周
+  const nb = newbieOf(merges([at(-60), at(-3), at(1), at(2)]), at(4));
+  assert.equal(nb.retake, true);
+  assert.equal(nb.merged, 2);
+  assert.equal(nb.activeWeeks, 1);
+  const two = newbieOf(merges([at(-60), at(-3), at(1), at(8)]), at(9));
+  assert.equal(two.activeWeeks, 2);
+  assert.equal(two.status, 'pending'); // 合入 2 个，还差 1 个
+});
+
+test('newbie: retake anomaly counts only PRs opened in the retake window', () => {
+  const open = (n, t) => ({ ...scorePr(n, t), mergedAt: null, closedAt: null });
+  const before = Array.from({ length: RULES.newbie.anomaly.opened }, (_, i) => open(100 + i, at(-50)));
+  const nb = newbieOf([...merges([at(-60)]), ...before], at(10));
+  assert.equal(nb.retake, true);
+  assert.equal(nb.anomaly, false);
+  const inside = Array.from({ length: RULES.newbie.anomaly.opened }, (_, i) => open(200 + i, at(1)));
+  const flagged = newbieOf([...merges([at(-60)]), ...inside], at(10));
+  assert.equal(flagged.retake, true);
+  assert.equal(flagged.anomaly, true);
+});
+
+test('newbie: before since a failed first window does not switch to the retake window', () => {
+  const nb = newbieOf(merges([at(-60)]), at(-5));
+  assert.equal(nb.retake, false);
+  assert.equal(nb.status, 'failed');
+  assert.equal(nb.start, Date.parse(at(-60)));
+  assert.equal(nb.daysLeft, 0);
+});
+
 test('newbie: contributors who arrive after the launch are unaffected', () => {
   const nb = newbieOf(merges([at(5), at(6), at(13)]), at(14));
   assert.equal(nb.retake, false);

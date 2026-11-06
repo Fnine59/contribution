@@ -602,7 +602,7 @@
     const h = H.get(p.login);
     const needM = h.needM > 0, needW = h.needW > 0;
     const tags = isNewThisWeek(p) ? '<span class="tag tag-new" title="本周首次贡献">新</span>' : '';
-    const sub = `${p.member ? '组织成员' : '组织外'} · ${fmt.md(p.firstAt)}首次贡献`;
+    const sub = `${p.member ? '组织成员' : '组织外'} · ${fmt.md(p.firstAt)}首次贡献${NB.since && nb.retake ? ' · 补考中' : ''}`;
     const txt = hintText(p);
     const hint = lane === 'one'
       ? `<div class="callout leaf">${icon('target', 14)}<span>${esc(txt)}</span></div>`

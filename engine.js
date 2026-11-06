@@ -367,7 +367,8 @@ function computeBoard(data, rules, now) {
     const sinceAt = nb.since ? Date.parse(nb.since) : null;
     let w = assess(firstAt);
     let retake = false;
-    if (!w.passAt && sinceAt !== null && firstAt < sinceAt) {
+    // 补考期还没开始（now 早于 since）时不换，仍按第一次考核期
+    if (!w.passAt && sinceAt !== null && firstAt < sinceAt && now >= sinceAt) {
       const w2 = assess(sinceAt);
       // 两次考核期任一通过即通过；都没通过时，第一次考核期还没结束就继续看它，结束了换第二次
       if (w2.passAt || now >= w.end) { w = w2; retake = true; }
