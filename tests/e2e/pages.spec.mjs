@@ -1,5 +1,5 @@
 // 各页主要交互，数字与测试数据逐一核对。
-import { test, expect, open, BOARD, RULES, LAST, THIS_WEEK, weekValue, mag } from './fixtures.mjs';
+import { test, expect, open, BOARD, RULES, LAST, THIS_WEEK, weekValue, mag, oneWeekBoard } from './fixtures.mjs';
 
 const P = BOARD.people;
 const byLogin = new Map(P.map((p) => [p.login, p]));
@@ -19,6 +19,41 @@ test.describe('本周', () => {
     await page.keyboard.press('t');
     await expect(page).not.toHaveURL(/[?&]week=/);
     await expect(kpis).toContainText(String(BOARD.weeks[LAST].merged));
+  });
+
+  test('只有一周数据的看板正常启动，周选择器停在本周 @mobile', async ({ page }) => {
+    const board = oneWeekBoard();
+    await page.route('**/data/board.json', (route) => route.fulfill({ json: board }));
+    await open(page, '/index.html');
+    await expect(page.locator('.boot-error')).toHaveCount(0);
+    const kpis = page.locator('#heroKpis');
+    await expect(kpis).toContainText(String(board.weeks[0].merged));
+    await page.locator('#wk').focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(page).not.toHaveURL(/[?&]week=/);
+    await expect(kpis).toContainText(String(board.weeks[0].merged));
+  });
+
+  test('周数标签跟随数据：测试数据显示实际周数', async ({ page }) => {
+    const n = BOARD.weeks.length;
+    await open(page, '/index.html');
+    await expect(page.locator('.wk-h .title')).toContainText(`${n} 周`);
+    await expect(page.locator('.trend .sec-h h2')).toHaveText(`${n} 周走势`);
+    await expect(page.locator('#heroKpis')).toContainText(`占 ${n} 周合入的`);
+  });
+
+  test('周数标签跟随数据：只剩最近 10 周时写 10 周', async ({ page }) => {
+    // 周数由数据决定（从第一个活跃周到本周），每周加一；页面不能写死
+    const board = structuredClone(BOARD);
+    board.weeks = board.weeks.slice(-10);
+    const kept = new Set(board.weeks.map((w) => w.start));
+    for (const p of board.people) p.weekly = p.weekly.filter(([w]) => kept.has(w));
+    board.summary.merged = board.weeks.reduce((s, w) => s + w.merged, 0);
+    await page.route('**/data/board.json', (route) => route.fulfill({ json: board }));
+    await open(page, '/index.html');
+    await expect(page.locator('.wk-h .title')).toContainText('10 周');
+    await expect(page.locator('.trend .sec-h h2')).toHaveText('10 周走势');
+    await expect(page.locator('#heroKpis')).toContainText('占 10 周合入的');
   });
 
   test('本周魔力榜按本周魔力排序，名字可进入档案', async ({ page }) => {
@@ -264,6 +299,29 @@ test.describe('形态池', () => {
     await expect(page.locator('#headline')).toContainText(String(BOARD.summary.hatched));
     const vacant = BOARD.summary.levelCounts.filter((n) => n === 0).length;
     if (vacant) await expect(page.locator('#ladder')).toContainText('虚位以待');
+  });
+
+  test('只有一周数据时堆叠图坐标有效，滑块停在唯一一周', async ({ page }) => {
+    await page.route('**/data/board.json', (route) => route.fulfill({ json: oneWeekBoard() }));
+    await open(page, '/pond.html');
+    await expect(page.locator('.boot-error')).toHaveCount(0);
+    const svg = page.locator('#chart svg');
+    await expect(svg).toHaveCount(1);
+    expect(await svg.evaluate((el) => el.outerHTML)).not.toMatch(/NaN|Infinity/);
+    await expect(page.locator('#chart .sel-tx')).toHaveText(/^已孵化 \d+ \/ \d+$/);
+    // 唯一一周的面积铺满绘图区，而不是缩成一条看不见的竖线
+    const box = await page.locator('#chart path.ar').first().evaluate((el) => el.getBBox().width);
+    expect(box).toBeGreaterThan(100);
+    const scrub = page.locator('#scrub');
+    await expect(scrub).toHaveAttribute('max', '0');
+    await expect(scrub).toHaveValue('0');
+    expect(await scrub.evaluate((el) => el.style.getPropertyValue('--p'))).toBe('100%');
+    // 悬停与键盘切周都停在这一周
+    await page.locator('#chart').hover();
+    expect(await page.locator('#hovBand').getAttribute('x')).not.toMatch(/NaN|Infinity/);
+    await page.locator('#chart').focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(scrub).toHaveValue('0');
   });
 });
 
