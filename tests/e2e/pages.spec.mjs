@@ -1,5 +1,6 @@
 // 各页主要交互，数字与测试数据逐一核对。
 import fs from 'node:fs';
+import vm from 'node:vm';
 import { test, expect, open, BOARD, RULES, LAST, THIS_WEEK, weekValue, mag, oneWeekBoard, recentWeeksBoard, freshBoard } from './fixtures.mjs';
 
 const P = BOARD.people;
@@ -69,25 +70,28 @@ test.describe('本周', () => {
 
   test('走势图月份标签跟随 RULES.tzOffsetHours，与周日期一致', async ({ page }) => {
     // 把时区改成 UTC-5：测试数据里 6 月 1 日（UTC+8）那周在 UTC-5 下仍是 5 月 31 日，
-    // 月份标签必须与 fmt.week 给的日期同一口径，不能写死 UTC+8
+    // 月份标签与 NWK.fmt.week 给的日期都必须跟随 RULES.tzOffsetHours，不能写死 UTC+8
     const src = fs.readFileSync(new URL('../../engine.js', import.meta.url), 'utf8');
     expect(src).toContain('tzOffsetHours: 8,');
     await page.route('**/engine.js', (route) => route.fulfill({ contentType: 'text/javascript', body: src.replace('tzOffsetHours: 8,', 'tzOffsetHours: -5,') }));
     await open(page, '/index.html');
-    const { expected, kitWeek } = await page.evaluate(() => {
+    const { expected, kitWeek } = await page.evaluate((offsetHours) => {
+      // Computed independently of NW.TZ: UTC shifted by the offset injected into engine.js above
+      const local = (t) => new Date(t + offsetHours * 3600e3);
       let last = -1;
       const out = [];
       NW.W.forEach((t, i) => {
-        const m = Number(NW.fmt.week(t).slice(0, 2));
+        const m = local(t).getUTCMonth() + 1;
         if (m !== last) { last = m; out.push({ i: String(i), text: `${m}月` }); }
       });
-      return { expected: out, kitWeek: NW.W.map((t) => NWK.fmt.week(t) === NW.fmt.week(t)) };
-    });
+      const mmdd = (d) => `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      return { expected: out, kitWeek: NW.W.map((t) => NWK.fmt.week(t) === mmdd(local(t))) };
+    }, -5);
     // 测试数据里至少有一周的月份随时区改变，否则这条用例测不出写死的偏移
     expect(BOARD.weeks.some((w) => new Date(w.start + 8 * 3600e3).getUTCMonth() !== new Date(w.start - 5 * 3600e3).getUTCMonth())).toBe(true);
     const labels = await page.locator('.wk .mo').evaluateAll((els) => els.map((e) => ({ i: e.dataset.i, text: e.textContent })));
     expect(labels).toEqual(expected);
-    expect(kitWeek.every(Boolean), 'NWK.fmt 与 NW.fmt 同一时区').toBe(true);
+    expect(kitWeek.every(Boolean), 'NWK.fmt.week 跟随 RULES.tzOffsetHours').toBe(true);
   });
 
   // 其余四页的月份刻度同样取 NW.TZ：把时区从 UTC+8 改成 UTC-5，跨月那周的「N月」刻度必须跟着挪位；
@@ -430,6 +434,29 @@ test.describe('形态池', () => {
     await page.keyboard.press('ArrowLeft');
     await expect(scrub).toHaveValue('0');
   });
+
+  test('换周不重算全部历史周的堆叠图，筛选变化时才重算', async ({ page }) => {
+    await open(page, '/pond.html');
+    await page.evaluate(() => {
+      const K = window.NWK, f = K.formOf;
+      window.__formOfCalls = 0;
+      K.formOf = (...a) => { window.__formOfCalls++; return f(...a); };
+    });
+    const before = await page.locator('#srTable').innerHTML();
+    const sel = await page.locator('#chart .sel-tx').textContent();
+    await page.locator('#stPrev').click();
+    await expect(page.locator('#scrub')).toHaveValue(String(LAST - 1));
+    // One snapshot of the new week at most, not weeks x people
+    expect(await page.evaluate(() => window.__formOfCalls)).toBeLessThanOrEqual(P.length);
+    // The chart still follows the selected week and the per-week table is unchanged
+    await expect(page.locator('#chart .sel-tx')).not.toHaveText(sel ?? '');
+    expect(await page.locator('#srTable').innerHTML()).toBe(before);
+    // A filter change still recomputes every week
+    await page.evaluate(() => { window.__formOfCalls = 0; });
+    await page.locator('#swSleep').evaluate((el) => el.click());
+    expect(await page.evaluate(() => window.__formOfCalls)).toBeGreaterThan(P.length);
+    expect(await page.locator('#srTable').innerHTML()).not.toBe(before);
+  });
 });
 
 test('档案页不带 #u= 且没记住账号时停在落地页，不打开任何人', async ({ page }) => {
@@ -503,4 +530,107 @@ test.describe('还没有魔力的看板（fresh）', () => {
       expect(bad).toEqual([]);
     });
   }
+});
+
+// 孵化门槛与新手考核的数字只在 RULES 维护：把 engine.js 换成孵化线 60、考核期 21 天的版本，页面上的文案应跟着变
+test.describe('孵化门槛跟随 RULES', () => {
+  const ENGINE = fs.readFileSync(new URL('../../engine.js', import.meta.url), 'utf8');
+  const tweaked = ENGINE
+    .replace(/(\{ name: '小奶蛙',[^}]*bonus: )50( \})/, '$160$2')
+    .replace(/(newbie: \{\s*days: )30,/, '$121,');
+  const useTweakedRules = (page) => page.route('**/engine.js', (route) => route.fulfill({ contentType: 'text/javascript', body: tweaked }));
+  // 门槛相关文案里不应再出现旧数字（「剩 30 天」是数据里的剩余天数，不算）
+  const STALE = /\/ ?50(?![0-9])|到 50(?![0-9])|≥ ?50(?![0-9])|30 天内|考核 30 天/;
+
+  test('改写后的 engine.js 确实改了两处门槛', () => {
+    const r = vm.runInNewContext(`${tweaked}\n;RULES`);
+    expect([r.levels[1].bonus, r.newbie.days]).toEqual([60, 21]);
+    expect([RULES.levels[1].bonus, RULES.newbie.days]).toEqual([50, 30]);
+  });
+
+  test('档案：未孵化的人按 RULES 显示孵化线与考核期', async ({ page }) => {
+    const p = byLogin.get('frog-26');
+    expect([p.level, p.newbie.status]).toEqual([null, 'failed']);
+    await useTweakedRules(page);
+    await open(page, '/profile.html#u=frog-26');
+    const row = page.locator('#rows .lrow[data-login="frog-26"] .fn');
+    await expect(row).toContainText(`魔力 ${mag(p.bonus)}/60`);
+    const body = page.locator('.drawer.on #pfBody');
+    await expect(body).toContainText('frog-26');
+    await expect(body).toContainText('（到 60）');
+    await expect(body).toContainText(`魔力 ${mag(p.bonus)} / 60`);
+    expect(await row.textContent()).not.toMatch(STALE);
+    expect(await body.textContent()).not.toMatch(STALE);
+  });
+
+  test('档案：考核中的蛙卵按 RULES 显示考核期、两项要求与孵化线', async ({ page }) => {
+    const p = byLogin.get('frog-41');
+    expect([p.level, p.newbie.status]).toEqual([null, 'pending']);
+    await useTweakedRules(page);
+    await open(page, '/profile.html#u=frog-41');
+    const body = page.locator('.drawer.on #pfBody');
+    await expect(body).toContainText('frog-41');
+    await expect(body).toContainText('考核 21 天');
+    await expect(body).toContainText(`或魔力攒到 60（现在 ${mag(p.bonus)}）直接孵化`);
+    await expect(body.locator('.evo-check').first()).toContainText(`/${RULES.newbie.merged}合入 PR`);
+    expect(await body.textContent()).not.toMatch(STALE);
+  });
+
+  test('孵化台：蛙卵卡片、未孵化列表与分组说明按 RULES 显示', async ({ page }) => {
+    await useTweakedRules(page);
+    await open(page, '/hatchery.html');
+    // 漏斗节点的悬停说明
+    const tip = page.locator('#nwk-tip');
+    for (const [id, want] of [['egg', '首次贡献 21 天内，还在考核'], ['failed', '考核期满，魔力也不到 60'], ['hatched', '通过新手考核，或魔力 ≥60'],
+      ['passed', `21 天内合入 ≥${RULES.newbie.merged} 且活跃周 ≥${RULES.newbie.activeWeeks}`], ['magic', '没通过考核，魔力攒到 60 孵化']]) {
+      await page.locator(`#funnel .fx-node[data-id="${id}"]`).hover();
+      await expect(tip).toContainText(want);
+      expect(await tip.textContent()).not.toMatch(STALE);
+    }
+    const egg = page.locator('#board article.egg').first();
+    await expect(egg).toHaveAttribute('aria-label', /魔力 [0-9.,]+\/60，/);
+    await expect(egg.locator('.rq.or .v')).toContainText('/60');
+    await expect(egg.locator('.rq.or .l')).toHaveAttribute('data-tip', '魔力 ≥60 不看考核，直接孵化');
+    await page.keyboard.press('u');
+    await expect(page.locator('#foldBtn')).toHaveAttribute('aria-expanded', 'true');
+    const fold = page.locator('#foldIn');
+    await expect(fold.locator('.lrow-head')).toContainText('魔力 · 到 60 补孵化');
+    await expect(fold.locator('.rows .lrow').first()).toContainText('/60');
+    const text = await page.locator('main').textContent();
+    const aria = await page.locator('main [aria-label], main [data-tip], main [data-tip-html]').evaluateAll((els) => els.map((e) => ['aria-label', 'data-tip', 'data-tip-html'].map((a) => e.getAttribute(a) || '').join(' ')).join('\n'));
+    expect(text).not.toMatch(STALE);
+    expect(aria).not.toMatch(STALE);
+  });
+});
+
+test.describe('预计升级时间', () => {
+  // 超过 52 周的 ETA 不再写成「约 100 周」，各页同一说法
+  const LONG = /约 \d{3,} 周|约 (5[3-9]|[6-9]\d) 周/;
+  const texts = (page) => page.evaluate(() => [document.body.innerText,
+    ...[...document.querySelectorAll('[aria-label],[data-tip-html],[data-tip]')].flatMap((e) => [e.getAttribute('aria-label'), e.getAttribute('data-tip-html'), e.getAttribute('data-tip')])]
+    .filter(Boolean).join('\n'));
+
+  test('档案：一年以上的 ETA 与形态池、孵化台同一说法', async ({ page }) => {
+    await open(page, '/profile.html#u=frog-54');
+    await expect(page.locator('.drawer.on #pfBody')).toContainText('frog-54');
+    const long = await page.evaluate(() => NWK.etaText(53));
+    expect(await page.evaluate(() => NWK.etaText(52))).toBe('约 52 周');
+    const t = await texts(page);
+    expect(t).not.toMatch(LONG);
+    expect(t).toContain(long);
+    await open(page, '/hatchery.html');
+    expect(await texts(page)).not.toMatch(LONG);
+    await expect(page.locator('.c-eta', { hasText: long }).first()).toBeAttached();
+    await open(page, '/pond.html');
+    const pond = await texts(page);
+    expect(pond).not.toMatch(LONG);
+    expect(pond).not.toMatch(/超过 1 年|一年以上才/); // 形态池与孵化台不再各写一套
+  });
+
+  test('排行榜：形态提示与人物卡不出现一年以上的周数', async ({ page }) => {
+    await open(page, '/ranking.html');
+    expect(await texts(page)).not.toMatch(LONG);
+    const cards = await page.evaluate(() => NW.people.map((p) => NWK.personCard.html(p)).join('\n'));
+    expect(cards).not.toMatch(LONG);
+  });
 });
