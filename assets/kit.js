@@ -1,13 +1,12 @@
 // 奶蛙宇宙看板 · 交互层（window.NWK）
 // 依赖：assets/boot.js 读取 data/board.json → engine.js（RULES）→ assets/derive.js（window.NW）→ assets/icons.js（window.frogIcon）→ tokens.css
-// 只读 NW；所有数字都来自 NW。可放在 <head> 里同步加载：主题在此刻就写到 <html>，不闪烁。
+// 只读 NW；所有数字都来自 NW。由 boot.js 在数据就绪后加载；首帧主题已由 boot.js 写到 <html>，不闪烁。
 (function () {
   'use strict';
   const NW = window.NW;
-  if (!NW || !window.frogIcon) { console.warn('[NWK] 需要先引入 data.js、derive.js、icons.js'); }
+  if (!NW || !window.frogIcon) { console.warn('[NWK] 需要先由 assets/boot.js 加载 derive.js、icons.js'); }
   const root = document.documentElement;
   const qs = new URLSearchParams(location.search);
-  const inFrame = false; // 正式站点不嵌在原型外壳里，跳转一律走普通链接
   const mqReduce = matchMedia('(prefers-reduced-motion: reduce)');
   const mqDark = matchMedia('(prefers-color-scheme: dark)');
   const mqHover = matchMedia('(hover: hover) and (pointer: fine)');
@@ -125,7 +124,7 @@
 
   // ───────────────────────── 形态 ─────────────────────────
   const frog = (kind, size = 20, cls = '') => `<span class="frog ${cls}" style="width:${size}px;height:${size}px">${window.frogIcon ? window.frogIcon(kind, size) : ''}</span>`;
-  // 第 i 周末的形态。未孵化时按「当时」是否仍在 30 天考核期内区分蛙卵 / 未孵化（不用当前 status 反推历史）
+  // 第 i 周末的形态。未孵化时按「当时」是否仍在 newbie.days 天考核期内区分蛙卵 / 未孵化（不用当前 status 反推历史）
   function formOf(p, i = NW.last) {
     const l = p.levels[i];
     if (l !== null && l !== undefined) return { level: l, kind: NW.LV[l].icon, name: NW.LV[l].name, hatched: true };
@@ -154,7 +153,10 @@
     const L = NW.LV[p.next.level];
     return { name: L.name, kind: L.icon, gap: p.gap, pace: p.pace, eta: p.eta };
   }
-  const etaText = (eta) => (eta === null || eta === undefined ? '近 4 周没有新魔力' : eta <= 1 ? '约 1 周' : `约 ${eta} 周`);
+  // Past a year the week count means little (e.g. 1623 weeks), so every page shows the same wording.
+  const etaText = (eta) => (eta === null || eta === undefined ? '近 4 周没有新魔力' : eta > 52 ? '要一年以上' : eta <= 1 ? '约 1 周' : `约 ${eta} 周`);
+  // Lead-in for "...到 X" phrases: "要一年以上到 50" does not read, so past a year it becomes "一年以上才到 50".
+  const etaUntil = (eta) => (eta > 52 ? '一年以上才' : etaText(eta));
 
   // 孵化提示：只差一项时给一句能照做的话（活跃周 = 有合入或协作的不同自然周）
   function hatchHint(p) {
@@ -165,7 +167,7 @@
     const needW = Math.max(0, R.activeWeeks - nb.activeWeeks);
     const toMagic = Math.max(0, NW.RULES.hatchBonus - p.bonus);
     if (nb.status !== 'pending') {
-      return { status: 'failed', missing: [], oneLeft: false, text: `考核期已过；魔力再攒 ${mag(toMagic)}（到 50）就能直接孵化` };
+      return { status: 'failed', missing: [], oneLeft: false, text: `考核期已过；魔力再攒 ${mag(toMagic)}（到 ${NW.RULES.hatchBonus}）就能直接孵化` };
     }
     const activeNow = p.tw > 0; // 本周已有合入或协作 = 本周已算一个活跃周
     const nextWeek = NW.W[NW.last] + WEEK;
@@ -179,7 +181,7 @@
     else if (needW === 1 && activeNow) {
       text = nextWeek <= nb.end
         ? `${fmt.md(nextWeek)}起的那一周再有一次合入或协作${needM ? `，并再合入 ${needM} 个 PR` : ''}，就能孵化`
-        : `考核期内已来不及再补一个活跃周；魔力攒到 50 也能孵化（还差 ${mag(toMagic)}）`;
+        : `考核期内已来不及再补一个活跃周；魔力攒到 ${NW.RULES.hatchBonus} 也能孵化（还差 ${mag(toMagic)}）`;
     } else text = `还差${missing.join('、')}，剩 ${nb.daysLeft} 天`;
     return { status: 'pending', missing, oneLeft: missing.length === 1, needM, needW, toMagic, daysLeft: nb.daysLeft, text };
   }
@@ -363,11 +365,6 @@
     return `<div class="empty"><div class="empty-art">${frog(art, 64, sleep ? 'sleep' : '')}${pad}${sleep ? '<span class="zz" aria-hidden="true">z z</span>' : ''}</div>`
       + `<h4>${esc(title)}</h4>${body ? `<p>${body}</p>` : ''}${action}</div>`;
   }
-  // 骨架行
-  const skeletonRows = (n = 5, { avatar: withAv = true } = {}) => Array.from({ length: n }, (_, k) => `<div class="lrow" aria-hidden="true" style="--cols:28px ${withAv ? '28px ' : ''}minmax(0,1fr) 80px">`
-    + `<span class="skel skel-line" style="width:18px"></span>${withAv ? '<span class="skel skel-circle" style="width:28px;height:28px"></span>' : ''}`
-    + `<span><span class="skel skel-line" style="width:${[46, 62, 38, 54, 44][k % 5]}%"></span><span class="skel skel-line" style="width:${[28, 22, 34, 26, 30][k % 5]}%;height:8px"></span></span>`
-    + '<span class="skel skel-line" style="width:56px;justify-self:end"></span></div>').join('');
 
   // ───────────────────────── 周 ─────────────────────────
   const week = {
@@ -458,8 +455,7 @@
     function toggle(origin) {
       const t = get() === 'dark' ? 'light' : 'dark';
       set(t, { origin, from: 'user' });
-      if (inFrame) { try { window.parent.postMessage({ type: 'nw:theme-changed', theme: t }, '*'); } catch (e) { /* 忽略 */ } }
-      else if (forced || qs.has('theme')) {
+      if (forced || qs.has('theme')) {
         const u = new URL(location.href); u.searchParams.set('theme', t); history.replaceState(history.state, '', u);
         // 顶栏、标签栏等站内链接是加载时按旧参数拼的，一起改成新主题
         $$('a[data-screen]').forEach((a) => {
@@ -595,7 +591,6 @@
   document.addEventListener('click', carryTheme, true);
   document.addEventListener('auxclick', carryTheme, true);
   function navigate(screen, hash = '') {
-    if (inFrame) { window.parent.postMessage({ type: 'nw:navigate', screen, hash }, '*'); return; }
     location.href = `${pageFile(screen)}${keepSearch()}${hash ? `#${hash}` : ''}`;
   }
   function openPerson(login) {
@@ -607,11 +602,6 @@
   }
   // c3 自己处理打开档案（例如在本页抽屉里换人）时注册
   const setPersonHandler = (fn) => { personHandler = fn; };
-  document.addEventListener('click', (e) => {
-    const a = e.target.closest('a[data-screen]');
-    if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
-    if (inFrame) { e.preventDefault(); navigate(a.dataset.screen, a.dataset.hash || ''); }
-  });
 
   // ───────────────────────── 人物卡 ─────────────────────────
   function personCardHTML(p) {
@@ -623,13 +613,14 @@
     let formBody;
     if (f.egg) {
       const nb = p.newbie;
-      const m = Math.min(nb.merged, 3), w = Math.min(nb.activeWeeks, 2);
+      const NB = NW.RULES.newbie;
+      const m = Math.min(nb.merged, NB.merged), w = Math.min(nb.activeWeeks, NB.activeWeeks);
       const pips = (n, of) => `<span class="pips">${Array.from({ length: of }, (_, k) => `<i class="${k < n ? 'on' : ''}"></i>`).join('')}</span>`;
       formBody = `<div class="pc-fname">蛙卵<span>考核剩 ${nb.daysLeft} 天</span></div>`
-        + `<div class="pc-req"><span>合入 ${pips(m, 3)}<b>${m}/3</b></span><span>活跃周 ${pips(w, 2)}<b>${w}/2</b></span></div>`;
+        + `<div class="pc-req"><span>合入 ${pips(m, NB.merged)}<b>${m}/${NB.merged}</b></span><span>活跃周 ${pips(w, NB.activeWeeks)}<b>${w}/${NB.activeWeeks}</b></span></div>`;
     } else if (f.unhatched) {
       formBody = `<div class="pc-fname">未孵化<span>考核期已过</span></div><div class="meter yolk"><i style="width:${(p.progress * 100).toFixed(1)}%"></i></div>`
-        + `<div class="pc-fnext">魔力 <b>${mag(p.bonus)}</b> / 50，攒满直接孵化</div>`;
+        + `<div class="pc-fnext">魔力 <b>${mag(p.bonus)}</b> / ${NW.RULES.hatchBonus}，攒满直接孵化</div>`;
     } else {
       formBody = `<div class="pc-fname">${f.name}${nx ? `<span>→ ${nx.name}</span>` : ''}</div><div class="meter"><i style="width:${(p.progress * 100).toFixed(1)}%"></i></div>`
         + `<div class="pc-fnext">${nx ? `差 <b>${mag(nx.gap)}</b> · ${etaText(nx.eta)}` : '已是最高形态'}</div>`;
@@ -720,140 +711,6 @@
     document.addEventListener('focusout', (e) => { if (e.target.closest && e.target.closest('[data-person]')) scheduleHide(); });
     addEventListener('scroll', () => { if (el && el.classList.contains('on')) hide(); }, { passive: true, capture: true });
     return { show: (a, login) => show(a, login || a.dataset.person), hide, html: personCardHTML };
-  })();
-
-  // ───────────────────────── 标注（?annot=1 / nw:annot） ─────────────────────────
-  const annot = (() => {
-    let on = false; // 设计标注只用于原型评审，正式站点不开启
-    let layer = null, hl = null, pop = null, dots = [], openK = -1, pinned = false, raf = 0, mo = null, ro = null, refreshT = 0, hideT = 0;
-    function build() {
-      if (layer) return;
-      layer = document.createElement('div');
-      layer.className = 'annot-layer';
-      layer.setAttribute('aria-label', '设计标注');
-      hl = document.createElement('div'); hl.className = 'annot-hl';
-      pop = document.createElement('div'); pop.className = 'annot-pop'; pop.setAttribute('role', 'dialog');
-      pop.addEventListener('pointerenter', () => clearTimeout(hideT));
-      pop.addEventListener('pointerleave', () => { if (!pinned) scheduleClose(); });
-      layer.append(hl, pop);
-      document.body.appendChild(layer);
-    }
-    function collect() {
-      dots.forEach((d) => d.btn.remove());
-      dots = $$('[data-annot]').filter((el) => !layer.contains(el))
-        .map((el) => ({ el, n: el.getAttribute('data-annot'), title: el.getAttribute('data-annot-title') || '', body: el.getAttribute('data-annot-body') || '' }))
-        .sort((a, b) => (parseFloat(a.n) || 0) - (parseFloat(b.n) || 0));
-      dots.forEach((d, k) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'annot-dot';
-        b.textContent = d.n;
-        b.setAttribute('aria-label', `标注 ${d.n}：${d.title}`);
-        b.setAttribute('aria-expanded', 'false');
-        b.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse' && !pinned) open(k, false); });
-        b.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && !pinned) scheduleClose(); });
-        b.addEventListener('click', () => { if (openK === k && pinned) close(); else open(k, true); });
-        b.addEventListener('focus', () => { if (b.matches(':focus-visible') && !pinned) open(k, false); });
-        layer.insertBefore(b, pop);
-        d.btn = b;
-      });
-      if (ro) { ro.disconnect(); dots.forEach((d) => ro.observe(d.el)); }
-      position();
-    }
-    function position() {
-      raf = 0;
-      if (!on || !layer) return;
-      const taken = [];
-      dots.forEach((d) => {
-        const r = d.el.getBoundingClientRect();
-        const show = visible(d.el) && r.width + r.height > 0 && !d.el.closest('[hidden],[aria-hidden="true"]');
-        d.btn.style.display = show ? '' : 'none';
-        if (!show) return;
-        let x = clamp(r.right - 4, 14, innerWidth - 14);
-        let y = r.top + 4;
-        // 元素部分可见时，圆点贴在视口内（向上滚出时吸附在顶部）
-        if (r.bottom > 14 && r.top < innerHeight) y = clamp(y, 14, Math.min(innerHeight - 14, r.bottom - 4));
-        // 与已放置的圆点重叠时向左错开
-        for (let guard = 0; guard < 6 && taken.some((t) => Math.abs(t.x - x) < 24 && Math.abs(t.y - y) < 24); guard++) x -= 28;
-        taken.push({ x, y });
-        d.x = x; d.y = y; d.r = r;
-        d.btn.style.setProperty('--x', `${x}px`);
-        d.btn.style.setProperty('--y', `${y}px`);
-      });
-      if (openK >= 0) placePop();
-    }
-    const schedule = () => { if (on && !raf) raf = requestAnimationFrame(position); };
-    function placePop() {
-      const d = dots[openK];
-      if (!d || !d.r) return;
-      const r = d.r;
-      hl.style.cssText = `transform:translate3d(${r.left}px,${r.top}px,0);width:${r.width}px;height:${r.height}px`;
-      const pw = pop.offsetWidth, ph = pop.offsetHeight;
-      let x = d.x + 16, y = d.y + 14, ox = '0', oy = '0';
-      if (x + pw > innerWidth - 10) { x = d.x - pw - 16; ox = '100%'; }
-      if (x < 10) x = clamp(d.x - pw / 2, 10, innerWidth - pw - 10);
-      if (y + ph > innerHeight - 10) { y = d.y - ph - 14; oy = '100%'; }
-      y = clamp(y, 10, Math.max(10, innerHeight - ph - 10));
-      pop.style.setProperty('--x', `${x}px`);
-      pop.style.setProperty('--y', `${y}px`);
-      pop.style.setProperty('--ox', ox);
-      pop.style.setProperty('--oy', oy);
-    }
-    function open(k, pin) {
-      clearTimeout(hideT);
-      const d = dots[k];
-      if (!d) return;
-      if (openK >= 0 && dots[openK]) dots[openK].btn.setAttribute('aria-expanded', 'false');
-      openK = k;
-      pinned = !!pin;
-      d.btn.setAttribute('aria-expanded', 'true');
-      pop.innerHTML = `<h4><i>${esc(d.n)}</i>${esc(d.title)}</h4>${d.body ? `<p>${esc(d.body)}</p>` : ''}`;
-      position();
-      pop.classList.add('on');
-      hl.classList.add('on');
-    }
-    function close() {
-      clearTimeout(hideT);
-      if (openK >= 0 && dots[openK]) dots[openK].btn.setAttribute('aria-expanded', 'false');
-      openK = -1;
-      pinned = false;
-      if (pop) pop.classList.remove('on');
-      if (hl) hl.classList.remove('on');
-    }
-    function scheduleClose() { clearTimeout(hideT); hideT = setTimeout(close, 180); }
-    function set(v) {
-      on = !!v;
-      root.toggleAttribute('data-annot-on', on);
-      if (!document.body) return;
-      if (on) {
-        build();
-        layer.hidden = false;
-        if (!ro) ro = new ResizeObserver(schedule);
-        if (!mo) {
-          mo = new MutationObserver((list) => {
-            if (list.every((m) => layer.contains(m.target))) return;
-            clearTimeout(refreshT);
-            refreshT = setTimeout(() => { if (on) collect(); }, 120);
-          });
-          mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-annot', 'data-annot-title', 'data-annot-body', 'hidden'] });
-        }
-        collect();
-      } else {
-        close();
-        if (layer) layer.hidden = true;
-        if (mo) { mo.disconnect(); mo = null; }
-        if (ro) { ro.disconnect(); ro = null; }
-      }
-      $$('[data-annot-toggle]').forEach((b) => { if ('checked' in b) b.checked = on; else b.setAttribute('aria-pressed', String(on)); });
-      document.dispatchEvent(new CustomEvent('nwk:annot', { detail: on }));
-    }
-    addEventListener('scroll', schedule, { passive: true, capture: true });
-    addEventListener('resize', schedule, { passive: true });
-    document.addEventListener('pointerdown', (e) => { if (pinned && layer && !layer.contains(e.target)) close(); });
-    document.addEventListener('change', (e) => { if (e.target.matches && e.target.matches('input[data-annot-toggle]')) set(e.target.checked); });
-    document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('button[data-annot-toggle]'); if (b) set(!on); });
-    ready(() => set(on));
-    return { get on() { return on; }, set, toggle: () => set(!on), refresh: () => { if (on) collect(); }, close, isOpen: () => openK >= 0 };
   })();
 
   // ───────────────────────── 行为助手 ─────────────────────────
@@ -1520,7 +1377,7 @@
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (cmdk.isOpen()) cmdk.close(); else cmdk.open(); return; }
       const top = layers[layers.length - 1];
       if (top) { if (top.key && top.key(e)) e.preventDefault(); return; }
-      if (e.key === 'Escape') { personCard.hide(); tip.hide(); if (annot.isOpen()) annot.close(); return; }
+      if (e.key === 'Escape') { personCard.hide(); tip.hide(); return; }
       if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
       for (let k = defs.length - 1; k >= 0; k--) {
         const d = defs[k];
@@ -1750,7 +1607,7 @@
       const emptyTop = c === 0 && k > 0;
       const names = d.members[k].map((p) => p.login);
       const tipTxt = k === 0
-        ? `蛙卵 ${c} 人：首次贡献 30 天内、还在新手考核期`
+        ? `蛙卵 ${c} 人：首次贡献 ${NW.RULES.newbie.days} 天内、还在新手考核期`
         : emptyTop ? `${m.name}：虚位以待（魔力 ${m.th}）` : `${m.name} ${c} 人${names.length <= 4 ? `：${names.join('、')}` : ''}${arr && k > 0 ? `；${i === NW.last ? '本周' : '这一周'}新到 ${arr} 人` : ''}`;
       const screen = k === 0 ? 'c4' : 'c5';
       return `<a class="st hop-host ${emptyTop ? 'is-vacant' : ''}" href="${pageFile(screen)}${keepSearch()}${k ? `#lv=${k - 1}` : ''}" data-screen="${screen}" data-hash="${k ? `lv=${k - 1}` : ''}" data-tip="${esc(tipTxt)}" aria-label="${esc(tipTxt)}">`
@@ -1769,24 +1626,25 @@
     const f = formOf(p);
     const L = p.level;
     const N = NW.LV.length; // 5
-    const nodes = [{ name: f.unhatched ? '未孵化' : '蛙卵', icon: f.unhatched ? 'unhatched' : 'egg', th: f.unhatched ? '考核期已过' : '考核 30 天' }, ...NW.LV.map((x, k) => ({ name: x.name, icon: x.icon, th: k ? `≥${x.bonus.toLocaleString('zh-CN')}` : '孵化即得' }))];
+    const nodes = [{ name: f.unhatched ? '未孵化' : '蛙卵', icon: f.unhatched ? 'unhatched' : 'egg', th: f.unhatched ? '考核期已过' : `考核 ${NW.RULES.newbie.days} 天` }, ...NW.LV.map((x, k) => ({ name: x.name, icon: x.icon, th: k ? `≥${x.bonus.toLocaleString('zh-CN')}` : '孵化即得' }))];
     const nb = p.newbie;
     let pos, curK, call, checks = '';
     if (L === null) {
       curK = 0;
       const route = Math.min(1, p.bonus / NW.RULES.hatchBonus);
-      const test = f.egg ? (Math.min(nb.merged, 3) / 3 + Math.min(nb.activeWeeks, 2) / 2) / 2 : 0;
+      const NB = NW.RULES.newbie;
+      const test = f.egg ? (Math.min(nb.merged, NB.merged) / NB.merged + Math.min(nb.activeWeeks, NB.activeWeeks) / NB.activeWeeks) / 2 : 0;
       pos = Math.max(route, test) * (1 / N) * 0.88;
       const h = hatchHint(p);
       if (f.egg) {
         const ok = (a, b) => (a >= b ? ' ok' : '');
         checks = `<div class="evo-checks">`
-          + `<div class="evo-check${ok(nb.merged, 3)}"><b>${Math.min(nb.merged, 3)}/3</b>合入 PR<div class="pips" style="margin-top:6px">${[0, 1, 2].map((k) => `<i class="${k < nb.merged ? 'on' : ''}"></i>`).join('')}</div></div>`
-          + `<div class="evo-check${ok(nb.activeWeeks, 2)}"><b>${Math.min(nb.activeWeeks, 2)}/2</b>活跃周<div class="pips" style="margin-top:6px">${[0, 1].map((k) => `<i class="${k < nb.activeWeeks ? 'on' : ''}"></i>`).join('')}</div></div>`
+          + `<div class="evo-check${ok(nb.merged, NB.merged)}"><b>${Math.min(nb.merged, NB.merged)}/${NB.merged}</b>合入 PR<div class="pips" style="margin-top:6px">${Array.from({ length: NB.merged }, (_, k) => k).map((k) => `<i class="${k < nb.merged ? 'on' : ''}"></i>`).join('')}</div></div>`
+          + `<div class="evo-check${ok(nb.activeWeeks, NB.activeWeeks)}"><b>${Math.min(nb.activeWeeks, NB.activeWeeks)}/${NB.activeWeeks}</b>活跃周<div class="pips" style="margin-top:6px">${Array.from({ length: NB.activeWeeks }, (_, k) => k).map((k) => `<i class="${k < nb.activeWeeks ? 'on' : ''}"></i>`).join('')}</div></div>`
           + `<div class="evo-check"><b>${nb.daysLeft} 天</b>考核剩余<div class="meter ${nb.daysLeft <= 10 ? 'rust' : 'yolk'} sm" style="margin-top:7px"><i style="width:${(nb.daysLeft / NW.RULES.newbie.days * 100).toFixed(1)}%"></i></div></div></div>`;
-        call = `<b>新手考核中</b> · ${esc(h.text)}；或魔力攒到 50（现在 ${mag(p.bonus)}）直接孵化`;
+        call = `<b>新手考核中</b> · ${esc(h.text)}；或魔力攒到 ${NW.RULES.hatchBonus}（现在 ${mag(p.bonus)}）直接孵化`;
       } else {
-        call = `<b>考核期已过</b> · 魔力 ${mag(p.bonus)} / 50，攒满直接孵化${p.pace > 0 ? `，按近 4 周均速${etaText(Math.ceil((NW.RULES.hatchBonus - p.bonus) / p.pace))}` : ''}`;
+        call = `<b>考核期已过</b> · 魔力 ${mag(p.bonus)} / ${NW.RULES.hatchBonus}，攒满直接孵化${p.pace > 0 ? `，按近 4 周均速${etaText(Math.ceil((NW.RULES.hatchBonus - p.bonus) / p.pace))}` : ''}`;
       }
     } else {
       curK = L + 1;
@@ -1818,17 +1676,17 @@
   window.NWK = {
     version: '2.0.0',
     // 环境
-    inFrame, reduced, canHover, isMac, ready,
+    reduced, canHover, isMac, ready,
     // 工具与格式
     $, $$, esc, clamp, hue, rng, fmt, mag,
     // 协议能力
-    theme, annot, tip, personCard, openPerson, setPersonHandler, navigate, SCREENS,
+    theme, tip, personCard, openPerson, setPersonHandler, navigate, SCREENS,
     // 我：本地记住的账号
     me, mePicker, meEntry,
     // 渲染助手（返回字符串）
-    icon, frog, frogOf, formOf, levelBadge, nextInfo, etaText, hatchHint,
+    icon, frog, frogOf, formOf, levelBadge, nextInfo, etaText, etaUntil, hatchHint,
     avatar, who, pname, people, delta, change,
-    sparkline, ring, countdown, stackedBar, compParts, comp, dotRange, empty, skeletonRows,
+    sparkline, ring, countdown, stackedBar, compParts, comp, dotRange, empty,
     pond, pondData, evoAxis, kpi, themeToggleHTML,
     // 活力
     VIT_PARTS, VIT_STATUS, vitNum, vitNeed, vitTip, vitBar, vitTag,
