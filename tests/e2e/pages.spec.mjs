@@ -1,5 +1,6 @@
 // 各页主要交互，数字与测试数据逐一核对。
-import { test, expect, open, BOARD, RULES, LAST, THIS_WEEK, weekValue, mag, oneWeekBoard } from './fixtures.mjs';
+import fs from 'node:fs';
+import { test, expect, open, BOARD, RULES, LAST, THIS_WEEK, weekValue, mag, oneWeekBoard, recentWeeksBoard, freshBoard } from './fixtures.mjs';
 
 const P = BOARD.people;
 const byLogin = new Map(P.map((p) => [p.login, p]));
@@ -65,6 +66,58 @@ test.describe('本周', () => {
     await first.click();
     await expect(page).toHaveURL(new RegExp(`profile\\.html.*#u=${top.p.login}`));
   });
+
+  test('走势图月份标签跟随 RULES.tzOffsetHours，与周日期一致', async ({ page }) => {
+    // 把时区改成 UTC-5：测试数据里 6 月 1 日（UTC+8）那周在 UTC-5 下仍是 5 月 31 日，
+    // 月份标签必须与 fmt.week 给的日期同一口径，不能写死 UTC+8
+    const src = fs.readFileSync(new URL('../../engine.js', import.meta.url), 'utf8');
+    expect(src).toContain('tzOffsetHours: 8,');
+    await page.route('**/engine.js', (route) => route.fulfill({ contentType: 'text/javascript', body: src.replace('tzOffsetHours: 8,', 'tzOffsetHours: -5,') }));
+    await open(page, '/index.html');
+    const { expected, kitWeek } = await page.evaluate(() => {
+      let last = -1;
+      const out = [];
+      NW.W.forEach((t, i) => {
+        const m = Number(NW.fmt.week(t).slice(0, 2));
+        if (m !== last) { last = m; out.push({ i: String(i), text: `${m}月` }); }
+      });
+      return { expected: out, kitWeek: NW.W.map((t) => NWK.fmt.week(t) === NW.fmt.week(t)) };
+    });
+    // 测试数据里至少有一周的月份随时区改变，否则这条用例测不出写死的偏移
+    expect(BOARD.weeks.some((w) => new Date(w.start + 8 * 3600e3).getUTCMonth() !== new Date(w.start - 5 * 3600e3).getUTCMonth())).toBe(true);
+    const labels = await page.locator('.wk .mo').evaluateAll((els) => els.map((e) => ({ i: e.dataset.i, text: e.textContent })));
+    expect(labels).toEqual(expected);
+    expect(kitWeek.every(Boolean), 'NWK.fmt 与 NW.fmt 同一时区').toBe(true);
+  });
+
+  // 其余四页的月份刻度同样取 NW.TZ：把时区从 UTC+8 改成 UTC-5，跨月那周的「N月」刻度必须跟着挪位；
+  // 若页面写死 UTC+8，两次渲染的刻度完全相同。档案页选首贡在 5 月的 frog-33，并切到累计图（页面自己画的刻度）
+  const tickPages = [
+    { path: '/hatchery.html' },
+    { path: '/pond.html' },
+    { path: '/profile.html#u=frog-33', prep: (page) => page.locator('#wkSeg').getByText('累计', { exact: true }).click() },
+    { path: '/ranking.html' },
+  ];
+  for (const { path, prep } of tickPages) {
+    test(`${path.split('#')[0].slice(1)} 月份刻度跟随 RULES.tzOffsetHours`, async ({ page }) => {
+      const src = fs.readFileSync(new URL('../../engine.js', import.meta.url), 'utf8');
+      expect(src).toContain('tzOffsetHours: 8,');
+      let tz = 8;
+      await page.route('**/engine.js', (route) => route.fulfill({ contentType: 'text/javascript', body: src.replace('tzOffsetHours: 8,', `tzOffsetHours: ${tz},`) }));
+      const ticks = async () => {
+        await page.goto('about:blank'); // 同一 URL 只差 hash 时 goto 不会重新加载
+        await open(page, path);
+        if (prep) await prep(page);
+        const loc = page.locator('svg text.ax, #tmMonths span').filter({ hasText: /^\d+月$/ });
+        await expect(loc.first()).toBeAttached();
+        return loc.evaluateAll((els) => els.map((e) => `${e.textContent}@${e.getAttribute('x') ?? e.style.left}`));
+      };
+      const east = await ticks();
+      tz = -5;
+      const west = await ticks();
+      expect(west).not.toEqual(east);
+    });
+  }
 });
 
 test.describe('排行榜', () => {
@@ -97,6 +150,40 @@ test.describe('排行榜', () => {
     await chip.click();
     await expect(chip).toHaveAttribute('aria-pressed', 'true');
   });
+
+  for (const n of [1, 2]) {
+    test(`不足 4 周（${n} 周）的看板：近 4 周从第一周算起，不出现 NaN`, async ({ page }) => {
+      const board = recentWeeksBoard(n);
+      await page.route('**/data/board.json', (route) => route.fulfill({ json: board }));
+      await open(page, '/ranking.html');
+      const stats = page.locator('#introStats');
+      await expect(stats.locator('.istat')).toHaveCount(3);
+      await expect(stats).not.toContainText('NaN');
+      const since = await page.evaluate(() => NWK.fmt.md(NW.W[0]));
+      await expect(stats.locator('.istat').nth(2).locator('small')).toHaveText(`${since}起`);
+    });
+  }
+
+  test('只有一周数据的看板：时光机拖动条居中一根柱，布局与键盘都不出现 NaN', async ({ page }) => {
+    await page.route('**/data/board.json', (route) => route.fulfill({ json: oneWeekBoard() }));
+    await open(page, '/ranking.html');
+    const scrub = page.locator('#tmScrub');
+    await expect(scrub.locator('.c')).toHaveCount(1);
+    const styles = await page.locator('#tmCard [style]').evaluateAll((els) => els.map((e) => e.getAttribute('style')));
+    expect(styles.filter((s) => /NaN|Infinity/.test(s))).toEqual([]);
+    const lefts = await scrub.locator('.c').evaluateAll((els) => els.map((e) => e.style.left));
+    for (const l of lefts) {
+      expect(l).not.toBe('');
+      expect(Number.isFinite(parseFloat(l))).toBe(true);
+    }
+    const [sb, cb] = [await scrub.boundingBox(), await scrub.locator('.c').boundingBox()];
+    expect(Math.abs(cb.x + cb.width / 2 - (sb.x + sb.width / 2))).toBeLessThan(2);
+    for (const key of ['Home', 'End', 'ArrowRight']) {
+      await scrub.focus();
+      await page.keyboard.press(key);
+      await expect(scrub).toHaveAttribute('aria-valuenow', '0');
+    }
+  });
 });
 
 test.describe('档案', () => {
@@ -113,6 +200,26 @@ test.describe('档案', () => {
     await expect(head).toContainText('frog-03');
     await page.keyboard.press('Escape');
     await expect(page.locator('.drawer.on')).toHaveCount(0);
+  });
+
+  test('魔力并列时上周名次沿用线上的先后，不出现假的名次变化', async ({ page }) => {
+    // frog-79 与 frog-80 魔力相同且这两周都没有新魔力；让 frog-80 合入更多，线上排在前面
+    const board = structuredClone(BOARD);
+    const get = (login) => board.people.find((p) => p.login === login);
+    const a = get('frog-79'), b = get('frog-80');
+    expect(a.bonus).toBe(b.bonus);
+    b.merged = a.merged + 2;
+    [a.rank, b.rank] = [b.rank, a.rank];
+    board.people.sort((x, y) => x.rank - y.rank);
+    await page.route('**/data/board.json', (route) => route.fulfill({ json: board }));
+    await open(page, '/profile.html#u=frog-80');
+    const ranks = await page.evaluate(() => ['frog-79', 'frog-80'].map((l) => {
+      const p = NW.byLogin.get(l);
+      return { rank: p.rank, prank: p.prank, move: p.move };
+    }));
+    expect(ranks[1].prank).toBeLessThan(ranks[0].prank);
+    expect(ranks[0].move).toBe(ranks[1].move);
+    await expect(page.locator('.drawer.on #pfBody')).toContainText(`上周 #${ranks[1].prank}`);
   });
 });
 
@@ -383,4 +490,17 @@ test('档案页显示活力分与四项构成', async ({ page }) => {
   const sec = page.locator('.drawer.on section[aria-label="活力"]');
   await expect(sec.locator('.vit-score')).toHaveText((Math.round(x.r.v * 10) / 10).toFixed(1));
   await expect(sec.locator('.vit-row')).toHaveCount(4);
+});
+
+// 还没有人拿到魔力时，魔力构成条的比例是 0/0：样式里不能出现 NaN/Infinity
+test.describe('还没有魔力的看板（fresh）', () => {
+  for (const file of ['profile.html', 'ranking.html']) {
+    test(`${file} 不出现 NaN 宽度`, async ({ page }) => {
+      await page.route('**/data/board.json', (route) => route.fulfill({ json: freshBoard() }));
+      await open(page, `/${file}`);
+      await expect(page.locator('.boot-error')).toHaveCount(0);
+      const bad = await page.locator('[style]').evaluateAll((els) => els.map((e) => e.getAttribute('style')).filter((s) => /NaN|Infinity/.test(s)));
+      expect(bad).toEqual([]);
+    });
+  }
 });

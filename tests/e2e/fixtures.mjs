@@ -11,15 +11,31 @@ export const THIS_WEEK = BOARD.weeks[LAST].start;
 export const weekValue = (p, start) => (p.weekly.find(([w]) => w === start) || [0, 0])[1];
 export const mag = (x) => (Math.round((x || 0) * 10) / 10).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
-// 只有一周数据的看板（组织刚开始统计）：只留最后一周及这周有记录的人，
-// 逐周魔力也只留这一周，firstAt 不早于这一周
-export function oneWeekBoard() {
+// 只有最近 n 周数据的看板（组织刚开始统计）：只留最后 n 周及这几周有记录的人，
+// 逐周魔力也只留这几周，firstAt 不早于其中第一周
+export function recentWeeksBoard(n) {
   const board = structuredClone(BOARD);
-  const week = board.weeks[LAST];
-  board.weeks = [week];
+  board.weeks = board.weeks.slice(-n);
+  const kept = new Set(board.weeks.map((w) => w.start));
+  const first = board.weeks[0].start;
   board.people = board.people
-    .filter((p) => p.weekly.some(([w]) => w === week.start))
-    .map((p) => ({ ...p, weekly: p.weekly.filter(([w]) => w === week.start), firstAt: Math.max(p.firstAt, week.start) }));
+    .filter((p) => p.weekly.some(([w]) => kept.has(w)))
+    .map((p) => ({ ...p, weekly: p.weekly.filter(([w]) => kept.has(w)), firstAt: Math.max(p.firstAt, first) }));
+  return board;
+}
+
+// 只有一周数据的看板
+export const oneWeekBoard = () => recentWeeksBoard(1);
+
+// 刚开始统计、还没有人拿到魔力的看板：5 人只开过 PR，魔力全为 0、未定级、新人期进行中
+export function freshBoard() {
+  const board = oneWeekBoard();
+  board.weeks[0] = { ...board.weeks[0], merged: 0 };
+  board.people = board.people.slice(0, 5).map((p, i) => ({
+    ...p, merged: 0, resolved: 0, rate: 0, bonus: 0, bonusPr: 0, bonusModel: 0, bonusCollab: 0,
+    weekly: [], activeWeeks: 0, level: null, rank: i + 1,
+    newbie: { ...p.newbie, status: 'pending', passAt: null, passDay: null, merged: 0, activeWeeks: 0 },
+  }));
   return board;
 }
 
