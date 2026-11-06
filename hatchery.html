@@ -354,7 +354,7 @@
       + '<div class="soon-m">当前没有考核中的蛙卵</div>'
       + '<div class="soon-s">有新的贡献者参与后，这里会显示最先到期的考核。</div></div>';
   }
-  $('#fxFoot').innerHTML = `<span>新手考核：首次贡献起 <b>${NB.days}</b> 天内合入 ≥<b>${NB.merged}</b> 且活跃周 ≥<b>${NB.activeWeeks}</b></span><span>或魔力 ≥<b>${R.hatchBonus}</b> 直接孵化</span><span id="fxRate"></span>`;
+  $('#fxFoot').innerHTML = `<span>新手考核：首次贡献起 <b>${NB.days}</b> 天内合入 ≥<b>${NB.merged}</b> 且活跃周 ≥<b>${NB.activeWeeks}</b>${NB.since ? '（看板上线前来的、没通过的从上线日起补考一次）' : ''}</span><span>或魔力 ≥<b>${R.hatchBonus}</b> 直接孵化</span><span id="fxRate"></span>`;
 
   // ───────── 孵化漏斗（桑基；手机端重排为三段条） ─────────
   const C = {
