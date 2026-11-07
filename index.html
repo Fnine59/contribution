@@ -256,7 +256,7 @@
     </div>
     <div class="grid">
       <div class="card card-pad span-6">
-        <div class="card-head"><div><div class="card-title">每周活跃贡献者</div><div class="card-sub">提 PR、合入或协作的人 · 单位：人</div></div></div>
+        <div class="card-head"><div><div class="card-title">每周活跃贡献者</div><div class="card-sub">提 PR、合入、直接推送或协作的人 · 单位：人</div></div></div>
         <div id="chartActive"></div>
       </div>
       <div class="card card-pad span-6">
@@ -292,6 +292,17 @@
   const nw = (h) => `<span class="nowrap">${h}</span>`;
 
   K.appHeader($('#appbar'), { active: 'c1' });
+  if (!W.length) {
+    $('main').innerHTML = `<section class="intro"><div><span class="eyebrow">本周</span><h1 class="headline is-in">暂无贡献记录</h1></div></section>
+      <section class="card card-pad">
+        <div class="card-head"><span class="muted">暂无可回看的周</span><div class="btn-group" role="group" aria-label="切换周">
+          <button type="button" class="btn btn-icon btn-sm" aria-label="前一周" disabled>${icon('chevron-left', 16)}</button>
+          <button type="button" class="btn btn-icon btn-sm" aria-label="后一周" disabled>${icon('chevron-right', 16)}</button>
+        </div></div>
+        ${K.empty({ art: 'egg', title: '池塘还很安静', body: '有贡献记录后，这里会显示每周快照、魔力榜和走势。' })}
+      </section>`;
+    return;
+  }
   $('#icBoard').innerHTML = icon('zap', 15);
   $('#icMoves').innerHTML = icon('trending-up', 15);
   $('#icEvo').innerHTML = icon('sparkles', 15);
@@ -408,7 +419,7 @@
     const evo = s.newlyHatched.length + s.upgraded.length;
     const pevo = ps ? ps.newlyHatched.length + ps.upgraded.length : 0;
     return [
-      { key: 'active', icon: 'users', label: '活跃贡献者', value: s.active, prev: ps ? ps.active : null, ref: ps ? `${prev} ${ps.active}` : null, sub: '提 PR、合入或协作的人' },
+      { key: 'active', icon: 'users', label: '活跃贡献者', value: s.active, prev: ps ? ps.active : null, ref: ps ? `${prev} ${ps.active}` : null, sub: '提 PR、合入、直接推送或协作的人' },
       { key: 'merged', icon: 'git-merge', label: '合入 PR', value: s.merged, prev: ps ? ps.merged : null, ref: ps ? `${prev} ${fmt.int(ps.merged)}` : null, sub: `占 ${NW.weeks.length} 周合入的 <b>${share(s.merged, NW.summary.merged)}</b>` },
       { key: 'magic', icon: 'zap', label: '产出魔力', value: f.magic, f: mag, prev: ps ? f.pmagic : null, ref: ps ? `${prev} ${mag(f.pmagic)}` : null, sub: `<b>${s.top.length}</b> 人获得魔力` },
       { key: 'faces', icon: 'user-plus', label: '新面孔', value: k, prev: ps ? f.pfaces : null, ref: ps ? `${prev} ${f.pfaces}` : null, sub: `${stack}<span>${facesSub}</span>` },
@@ -926,7 +937,7 @@
     $('#peopleEyebrow').textContent = f.live ? `本周 · ${K.week.range(i)}` : `${K.week.name(i)} · ${K.week.range(i)}`;
     renderMeStrip();
     const note = i === LAST ? K.week.note(i) : i === 0 ? '这是有记录的第一周，没有可对比的前一周。' : `「较前一周」对比的是 ${K.week.short(i - 1)} 那一周全周。`;
-    $('#heroNote').innerHTML = `${icon('info', 13)}<span>${note}活跃 = 提 PR、合入或协作的人；PR 与协作分别计分，贡献越多单次增量越小。</span>`;
+    $('#heroNote').innerHTML = `${icon('info', 13)}<span>${note}活跃 = 提 PR、合入、直接推送或协作的人；PR 与协作分别计分，贡献越多单次增量越小。</span>`;
     if (!first) K.week.toURL(i);
     if (first) renderPanels(false, false);
     else if (quiet) settle();

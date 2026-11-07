@@ -16,25 +16,28 @@ const RULES = {
     collab: 1,
   },
   // 按 commit 作者与共同作者（Co-Authored-By）的名字识别模型，PR 分乘以 weight。
+  // 名字去掉括号部分后整体比对，括号里的内容单独比对，例如「Claude Opus 5.5 (1M context)」「Alex Chen (Claude Opus 5.5)」。
+  // Claude、Gemini、TRAE 和型号词也会出现在人名里，这几档只认完整的 AI 署名：Claude 型号要带「Claude」前缀或版本号，
+  // 「Claude Dupont」「Gemini Moreau」这类人名不算。
   // 系数按组织偏好整体定档，不区分版本：Claude 强于 GPT；DeepSeek 胜在速度、Gemini 胜在成本，系数低于前两家。
   // 没有署名的 PR 绝大多数也由 agent 编写，署名与否主要取决于工具配置，所以各档与「无 AI 标注」只拉开小幅差距。
   // 同一个署名按列表顺序取第一个匹配，所以扣分工具与更具体的代号排在前面。
   // 一个 PR 出现多个模型时取系数最高的；出现系数低于 1 的扣分工具时按扣分计。
   models: [
-    { key: 'trae', family: '其他', short: 'TRAE CLI', label: 'TRAE CLI', weight: 0.94, pattern: /\btrae\b/i },
-    { key: 'opus', family: 'Claude', short: 'Opus', label: 'Claude Opus', weight: 1.18, pattern: /\bopus\b/i },
-    { key: 'fable', family: 'Claude', short: 'Fable', label: 'Claude Fable', weight: 1.15, pattern: /\bfable\b/i },
-    { key: 'sonnet', family: 'Claude', short: 'Sonnet', label: 'Claude Sonnet', weight: 1.12, pattern: /\bsonnet\b/i },
-    { key: 'haiku', family: 'Claude', short: 'Haiku', label: 'Claude Haiku', weight: 1.06, pattern: /\bhaiku\b/i },
-    { key: 'claude', family: 'Claude', short: '未注明型号', label: 'Claude 未注明型号', weight: 1.06, pattern: /\bclaude\b/i },
+    { key: 'trae', family: '其他', short: 'TRAE CLI', label: 'TRAE CLI', weight: 0.94, pattern: /^trae([\s-]+(cli|agent|ide))?$/i },
+    { key: 'opus', family: 'Claude', short: 'Opus', label: 'Claude Opus', weight: 1.18, pattern: /^(claude[\s-]+opus|(claude[\s-]+)?opus[\s-]+v?\d[\w.-]*([\s-]+[\w.-]+)*)$/i },
+    { key: 'fable', family: 'Claude', short: 'Fable', label: 'Claude Fable', weight: 1.15, pattern: /^(claude[\s-]+fable|(claude[\s-]+)?fable[\s-]+v?\d[\w.-]*([\s-]+[\w.-]+)*)$/i },
+    { key: 'sonnet', family: 'Claude', short: 'Sonnet', label: 'Claude Sonnet', weight: 1.12, pattern: /^(claude[\s-]+sonnet|(claude[\s-]+)?sonnet[\s-]+v?\d[\w.-]*([\s-]+[\w.-]+)*)$/i },
+    { key: 'haiku', family: 'Claude', short: 'Haiku', label: 'Claude Haiku', weight: 1.06, pattern: /^(claude[\s-]+haiku|(claude[\s-]+)?haiku[\s-]+v?\d[\w.-]*([\s-]+[\w.-]+)*)$/i },
+    { key: 'claude', family: 'Claude', short: '未注明型号', label: 'Claude 未注明型号', weight: 1.06, pattern: /^claude([\s-]+code|\[bot\])?$/i },
     { key: 'gptTop', family: 'GPT', short: 'Astra、Pro', label: 'GPT Astra / Pro', weight: 1.12, pattern: /\bgpt\b[\w. -]*?\b(astra|pro)\b/i },
     { key: 'gptSol', family: 'GPT', short: 'Sol', label: 'GPT Sol', weight: 1.09, pattern: /\bgpt\b[\w. -]*?\bsol\b/i },
     { key: 'gpt', family: 'GPT', short: 'Terra、Luna、mini 等，Codex 默认署名', label: 'GPT 其他', weight: 1.03, pattern: /\b(gpt|codex|openai|chatgpt)\b/i },
-    { key: 'geminiPro', family: 'Gemini', short: 'Carbon、Argon、Pro', label: 'Gemini Carbon / Argon', weight: 1.06, pattern: /\bgemini\b[\w. -]*?\b(carbon|argon|ultra|pro)\b/i },
-    { key: 'gemini', family: 'Gemini', short: 'Flash 等', label: 'Gemini 其他', weight: 1.03, pattern: /\bgemini\b/i },
+    { key: 'geminiPro', family: 'Gemini', short: 'Carbon、Argon、Pro', label: 'Gemini Carbon / Argon', weight: 1.06, pattern: /^gemini\b[\w. -]*?\b(carbon|argon|ultra|pro)\b/i },
+    { key: 'gemini', family: 'Gemini', short: 'Flash 等', label: 'Gemini 其他', weight: 1.03, pattern: /^gemini([\s-]+(cli|code|assist|flash|lite|nano|v?\d[\w.-]*))*$/i },
     { key: 'deepseekPro', family: 'DeepSeek', short: 'Pro、Reasoner', label: 'DeepSeek Pro', weight: 1.06, pattern: /\bdeepseek\b[\w. -]*?\b(pro|reasoner|r\d)\b/i },
     { key: 'deepseek', family: 'DeepSeek', short: 'Flash 等', label: 'DeepSeek 其他', weight: 1.03, pattern: /\bdeepseek\b/i },
-    { key: 'cursor', family: '其他', short: 'Cursor', label: 'Cursor', weight: 1, pattern: /\bcursor\b/i },
+    { key: 'cursor', family: '其他', short: 'Cursor', label: 'Cursor', weight: 1, pattern: /^cursor([\s-]+agent)?$/i },
     { key: 'copilot', family: '其他', short: 'Copilot', label: 'Copilot', weight: 1, pattern: /\bcopilot\b/i },
   ],
   modelNone: { key: 'none', family: '其他', short: '无 AI 标注', label: '无 AI 标注', weight: 1 },
@@ -99,7 +102,7 @@ const RULES = {
   // 不计为有效 issue 的关闭原因
   invalidIssueReasons: ['NOT_PLANNED', 'DUPLICATE'],
   // GitHub 类型为 User、但实际是自动化的账号
-  ignoreLogins: [],
+  ignoreLogins: ['codex', 'cursoragent'],
   includeArchived: false,
   includeForks: false,
   // 不参与统计的仓库：看板仓库本身的 PR、issue 与数据提交都不算贡献
@@ -164,8 +167,11 @@ function weeklyScore(pr, model, collab, rules = RULES) {
   return result;
 }
 
-function modelOf(text, rules) {
-  return rules.models.find((x) => x.pattern.test(text)) || rules.modelNone;
+// 署名拆成去掉括号后的名字与各个括号里的内容，分别比对
+function modelOf(name, rules) {
+  const parts = [name.replace(/\([^()]*\)/g, ' '), ...Array.from(name.matchAll(/\(([^()]*)\)/g), (m) => m[1])]
+    .map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  return rules.models.find((x) => parts.some((s) => x.pattern.test(s))) || rules.modelNone;
 }
 
 // PR 内所有 commit 作者与共同作者的模型：有扣分工具（系数低于 1）时按它计，否则取系数最高的，系数相同取先出现的
@@ -173,7 +179,7 @@ function detectModel(pr, rules) {
   let best = null;
   for (const c of pr.commits?.nodes || []) {
     for (const a of c.commit?.authors?.nodes || []) {
-      const m = modelOf(`${a.name || ''} ${a.email || ''}`, rules);
+      const m = modelOf(a.name || '', rules);
       if (m === rules.modelNone) continue;
       if (m.weight < 1) return m;
       if (!best || m.weight > best.weight) best = m;
@@ -182,7 +188,8 @@ function detectModel(pr, rules) {
   return best || rules.modelNone;
 }
 
-// data: { org, members: [login], repos: [{ name, prs: [PR node], issues: [Issue node] }] }
+// data: { org, members: [login], repos: [{ name, prs: [PR node], issues: [Issue node], direct?: [Direct] }] }
+// Direct：一个不属于任何 PR 的直接推送 commit，{ author: { login, __typename }, committedAt, lines, commit: { authors: { nodes: [{ name }] } } }
 // 节点字段与页面 GraphQL 查询一致。返回值只依赖 data、rules、now。
 function computeBoard(data, rules, now) {
   const tz = rules.tzOffsetHours;
@@ -202,7 +209,7 @@ function computeBoard(data, rules, now) {
   const get = (login) => {
     let p = people.get(login);
     if (!p) {
-      p = { login, member: members.has(login), prs: [], threads: new Map(), activityTimes: [], issuesFiled: 0 };
+      p = { login, member: members.has(login), prs: [], direct: [], threads: new Map(), activityTimes: [], issuesFiled: 0 };
       people.set(login, p);
     }
     return p;
@@ -267,6 +274,28 @@ function computeBoard(data, rules, now) {
         weekMerged.set(w, (weekMerged.get(w) || 0) + 1);
       }
     }
+    // 直接推送：每人在每个仓库的全部直接推送合起来按一个合入 PR 计分；没有改动文件明细，不乘样式系数，也不计入合入数与合入率。
+    // 按提交时间逐个计入：每个 commit 记它让这份原始分增加的部分、算一次动作，模型系数看它自己的署名，新的推送不改动之前各周的分数
+    const pushes = new Map();
+    for (const c of repo.direct || []) {
+      const owner = human(c.author);
+      const t = toTime(c.committedAt);
+      if (!owner || t == null) continue;
+      if (!pushes.has(owner)) pushes.set(owner, []);
+      pushes.get(owner).push({ t, lines: c.lines, model: detectModel({ commits: { nodes: [c] } }, rules) });
+    }
+    for (const [owner, list] of pushes) {
+      const p = get(owner);
+      let lines = 0;
+      let prev = 0;
+      list.sort((a, b) => a.t - b.t).forEach((c, k) => {
+        lines += c.lines;
+        const raw = prRawScore(lines, k + 1, rules);
+        p.direct.push({ t: c.t, model: c.model, raw: raw - prev });
+        p.activityTimes.push(c.t);
+        prev = raw;
+      });
+    }
     for (const issue of repo.issues) {
       stats.issues++;
       const owner = human(issue.author);
@@ -289,9 +318,10 @@ function computeBoard(data, rules, now) {
     const mergedPrs = p.prs.filter((x) => x.merged);
     const mergedTimes = mergedPrs.map((x) => x.merged).sort((a, b) => a - b);
     const threadTimes = [...p.threads.values()].sort((a, b) => a - b);
-    // 动作：合入 PR 得分拆成规模部分 pr 与模型加减 model（扣分工具为负）；协作得分 collab
+    // 动作：合入 PR 与直接推送的得分拆成规模部分 pr 与模型加减 model（扣分工具为负）；协作得分 collab
     const acts = [
       ...mergedPrs.map((x) => ({ t: x.merged, pr: x.raw, model: x.raw * (x.model.weight - 1), collab: 0 })),
+      ...p.direct.map((x) => ({ t: x.t, pr: x.raw, model: x.raw * (x.model.weight - 1), collab: 0 })),
       ...threadTimes.map((t) => ({ t, pr: 0, model: 0, collab: rules.score.collab })),
     ].sort((a, b) => a.t - b.t);
     const allTimes = [...p.prs.map((x) => x.created), ...acts.map((a) => a.t), ...p.activityTimes];
@@ -441,6 +471,7 @@ function computeBoard(data, rules, now) {
       activeWeeks: new Set([...mergedTimes, ...p.activityTimes].map((t) => weekStart(t, tz))).size,
       lines: mergedPrs.reduce((n, x) => n + x.lines, 0),
       commits: mergedPrs.reduce((n, x) => n + x.commits, 0),
+      directCommits: p.direct.length,
       modelMix,
       newbie,
       level,

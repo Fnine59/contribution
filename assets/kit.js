@@ -116,6 +116,8 @@
     activity: '<path d="M21.5 12h-3.8l-2.8 8.5L9.1 3.5 6.3 12H2.5"/>',
     repeat: '<path d="m17 2.5 4 4-4 4"/><path d="M3 11.5v-1a4 4 0 0 1 4-4h14"/><path d="m7 21.5-4-4 4-4"/><path d="M21 12.5v1a4 4 0 0 1-4 4H3"/>',
     'log-out': '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+    github: '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65S8.93 17.38 9 18v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>',
+    'arrow-up-right': '<path d="M7 17 17 7"/><path d="M7 7h10v10"/>',
     link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   };
   const icon = (name, size = 16, cls = '') => `<svg class="ic ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${P[name] || ''}</svg>`;
@@ -160,7 +162,7 @@
   // Lead-in for "...到 X" phrases: "要一年以上到 50" does not read, so past a year it becomes "一年以上才到 50".
   const etaUntil = (eta) => (eta > 52 ? '一年以上才' : etaText(eta));
 
-  // 孵化提示：只差一项时给一句能照做的话（活跃周 = 有合入或协作的不同自然周）
+  // 孵化提示：只差一项时给一句能照做的话（活跃周 = 有合入、直接推送或协作的不同自然周）
   function hatchHint(p) {
     if (p.level !== null) return null;
     const nb = p.newbie;
@@ -171,7 +173,7 @@
     if (nb.status !== 'pending') {
       return { status: 'failed', missing: [], oneLeft: false, text: `考核期已过；魔力再攒 ${mag(toMagic)}（到 ${NW.RULES.hatchBonus}）就能直接孵化` };
     }
-    const activeNow = p.tw > 0; // 本周已有合入或协作 = 本周已算一个活跃周
+    const activeNow = p.tw > 0; // 本周已有合入、直接推送或协作 = 本周已算一个活跃周
     const nextWeek = NW.W[NW.last] + WEEK;
     const missing = [];
     if (needM) missing.push(`合入 ${needM} 个 PR`);
@@ -985,6 +987,7 @@
     a.addEventListener('click', (e) => { e.preventDefault(); main.focus({ preventScroll: false }); });
     document.body.prepend(a);
   }
+  const ORG_URL = 'https://github.com/nwverse';
   function appHeader(el, { active = null, sub = '贡献度看板' } = {}) {
     if (!el) return null;
     const href = (id) => `${pageFile(id)}${keepSearch()}`;
@@ -994,6 +997,7 @@
     el.innerHTML = `<div class="appbar-in">
       <a class="brand" href="${href('c1')}" data-screen="c1" aria-label="奶蛙宇宙 · 回到本周"><span class="brand-mark">${frog('face', 24)}</span><span class="brand-txt"><span class="brand-name">奶蛙宇宙</span><span class="brand-sub">${esc(sub)}</span></span></a>
       <nav class="nav" aria-label="主导航">${SCREENS.map((s) => `<a href="${href(s.id)}" data-screen="${s.id}"${s.id === active ? ' aria-current="page"' : ''}>${icon(s.icon, 15)}${s.label}</a>`).join('')}</nav>
+      <a class="org-link" href="${ORG_URL}" target="_blank" rel="noopener" aria-label="回到奶蛙宇宙 GitHub 组织（新窗口打开）">${icon('github', 15)}<span class="lbl">回到奶蛙</span>${icon('arrow-up-right', 12, 'ext')}</a>
       <div class="appbar-r">
         <span class="fresh" data-tip="数据快照生成于 ${esc(fmt.datetime(NW.now))}（UTC+8）"><i class="live-dot"></i><span class="fresh-label">数据更新于</span>${fmt.week(NW.now)} ${fmt.hm(NW.now)}</span>
         <button type="button" class="btn search-btn" data-action="cmdk" aria-label="搜索贡献者（${mod}K）">${icon('search', 15)}<span class="lbl">搜索贡献者</span><span class="kbds only-kbd"><kbd>${mod}</kbd><kbd>K</kbd></span></button>
